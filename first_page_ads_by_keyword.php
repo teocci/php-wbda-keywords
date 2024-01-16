@@ -206,6 +206,12 @@ if ($_SERVER["REQUEST_METHOD"] == "GET") {
         [LINK_KEY_MPS]: LINK_MPS,
     }
 
+    const STATUS_UID_INIT = 0
+    const STATUS_UID_LOADING = 1
+    const STATUS_UID_LOADED = 2
+    const STATUS_UID_RENDERED = 3
+    const STATUS_UID_ERROR = 4
+
     const $form = document.getElementById('search-form')
     const $loader = document.getElementById('loader')
     const $result = document.getElementById('result-container')
@@ -233,7 +239,7 @@ if ($_SERVER["REQUEST_METHOD"] == "GET") {
                 {
                     name: 'ID',
                     columnId: 'id',
-                    width: '80px',
+                    width: '120px',
                     sort: false,
                 },
                 {
@@ -277,10 +283,14 @@ if ($_SERVER["REQUEST_METHOD"] == "GET") {
         })
 
         grid.render($result)
+
+        subscribe(e => {
+            initTableActions(e)
+        })
     }
 
     function initTableActions() {
-        const links = document.querySelectorAll('[id^="btn-link-wp-"]')
+        const links = document.querySelectorAll('[id^="btn-link-"]')
 
         links.forEach($link => {
             console.log({$link, id: $link.dataset.id})
@@ -296,7 +306,7 @@ if ($_SERVER["REQUEST_METHOD"] == "GET") {
 
                 console.log({$btn, link})
 
-                // window.open(href, '_blank')
+                window.open(href, '_blank')
             }
         })
     }
@@ -357,13 +367,13 @@ if ($_SERVER["REQUEST_METHOD"] == "GET") {
 
         resolver(data)
 
-
-        grid.on('load', (...args) => {
-            console.log('onload')
-            initTableActions()
-        })
-
         hideLoader()
+    }
+
+    function subscribe(fn) {
+        grid.config.store.subscribe(e => {
+            e.status === STATUS_UID_RENDERED && fn(e)
+        })
     }
 
     function showLoader() {
