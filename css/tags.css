@@ -1,0 +1,22 @@
+#tags {
+    display: flex;
+    flex-wrap: wrap;
+    margin: 5px 0;
+}
+
+#tags .tag {
+    background-color: #3498db;
+    color: white;
+    padding: 5px 10px;
+    margin: 5px;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+#tags .tag:hover {
+    background-color: #2980b9;
+}
+
+#tags .tag[data-tag=""] {
+    display: none;
+}

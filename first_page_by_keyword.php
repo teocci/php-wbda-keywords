@@ -57,108 +57,11 @@ if ($_SERVER["REQUEST_METHOD"] == "GET") {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Результаты поиска продуктов</title>
     <link href="https://unpkg.com/gridjs/dist/theme/mermaid.min.css" rel="stylesheet"/>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            height: 100vh;
-        }
-
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f4f4f4;
-            margin: 20px;
-        }
-
-        .wrapper {
-            max-width: 800px;
-            min-width: 800px;
-            margin: 0 auto;
-            background-color: #fff;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-        }
-
-        label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
-        }
-
-        input {
-            width: calc(100% - 12px);
-            padding: 8px;
-            margin-bottom: 15px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            box-sizing: border-box;
-        }
-
-        input[type="submit"] {
-            background-color: #4caf50;
-            color: #fff;
-            cursor: pointer;
-        }
-
-        input[type="submit"]:hover {
-            background-color: #45a049;
-        }
-
-        #result-container {
-            border: 1px solid #ccc;
-            padding: 10px;
-            margin-top: 20px;
-        }
-
-        .product-result {
-            margin-bottom: 20px;
-        }
-
-        .error {
-            color: red;
-        }
-
-        #loader {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(255, 255, 255, 0.8); /* Translucent background for the loader */
-            padding: 20px;
-            border-radius: 10px;
-        }
-
-        #loader-icon {
-            border: 5px solid #f3f3f3;
-            border-top: 5px solid #3498db;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            0% {
-                transform: rotate(0deg);
-            }
-            100% {
-                transform: rotate(360deg);
-            }
-        }
-
-        .hidden {
-            display: none !important;
-        }
-    </style>
+    <link href="/css/style.css" rel="stylesheet"/>
+    <script src="/js/links.js" defer></script>
+    <script src="/js/grid-table.js" defer></script>
+    <script src="/js/loader.js" defer></script>
+    <script src="/js/toaster.js" defer></script>
 </head>
 <body>
 <section class="wrapper">
@@ -171,10 +74,11 @@ if ($_SERVER["REQUEST_METHOD"] == "GET") {
         <input type="submit" value="Поиск">
     </form>
 
-    <div id="result-container"></div>
+    <div id="result-container" class="hidden"></div>
 </section>
-
-
+<div id="toast" class="action-notification">
+    <p class="action-notification-message"></p>
+</div>
 <div id="loader" class="hidden">
     <div id="loader-icon"></div>
 </div>
@@ -182,26 +86,91 @@ if ($_SERVER["REQUEST_METHOD"] == "GET") {
 <script src="https://unpkg.com/gridjs/dist/gridjs.umd.js"></script>
 <script>
     const $form = document.getElementById('search-form')
-    const $loader = document.getElementById('loader')
     const $result = document.getElementById('result-container')
-
-    let resolver
-
-    $form.onsubmit = event => {
-        event.preventDefault()
-        searchProducts(event)
-    }
 
     window.onload = () => {
         console.log('init')
 
-        const grid = new gridjs.Grid({
+        initFormListeners()
+    }
+
+    function initFormListeners() {
+        $form.onsubmit = event => {
+            event.preventDefault()
+
+            searchProducts(event)
+        }
+    }
+
+    function searchProducts(event) {
+        const form = event.target
+        const url = `${form.action}?${new URLSearchParams(new FormData(form)).toString()}`
+
+        prepareGrid()
+
+        fetch(url)
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) throw new Error(data.error)
+
+                displayResults(data)
+            })
+            .catch(error => {
+                console.error('Error:', error)
+                hideLoader()
+                hideResult()
+            })
+    }
+
+    function prepareGrid() {
+        removeTable($result)
+
+        initTable()
+
+        showLoader()
+        showResult()
+    }
+
+    function initTable() {
+        grid = new gridjs.Grid({
             columns: [
+                {
+                    name: 'No',
+                    columnId: 'no',
+                    width: '80px',
+                },
                 {
                     name: 'ID',
                     columnId: 'id',
-                    width: '80px',
+                    width: '120px',
                     sort: false,
+                    formatter: cell => {
+                        const $tmp = document.createElement('div')
+
+                        const $wrapper = document.createElement('div')
+                        $wrapper.classList.add('id-wrapper')
+
+                        const $id = document.createElement('div')
+                        $id.classList.add('iw-part', 'iw-value')
+                        $id.textContent = cell
+
+                        const $icon = document.createElement('div')
+                        $icon.classList.add('iw-part', 'iw-icon')
+                        $icon.dataset.action = 'copy'
+                        $icon.dataset.value = cell
+
+                        const $img = document.createElement('img')
+                        $img.src = '/images/copy.svg'
+                        $img.alt = 'Copy Icon'
+
+                        $icon.append($img)
+                        $wrapper.append($id)
+                        $wrapper.append($icon)
+
+                        $tmp.append($wrapper)
+
+                        return GridHTML($tmp.innerHTML)
+                    },
                 },
                 {
                     name: 'Name',
@@ -209,9 +178,30 @@ if ($_SERVER["REQUEST_METHOD"] == "GET") {
                     width: '200px',
                 },
                 {
-                    name: 'Position',
-                    columnId: 'position',
-                    width: '200px',
+                    name: 'Actions',
+                    formatter: cell => {
+                        const $tmp = document.createElement('div')
+
+                        const $wrapper = document.createElement('div')
+                        $wrapper.classList.add('links')
+
+                        for (const link of LINK_LIST) {
+                            const uid = cell['id']
+
+                            const $btn = document.createElement('button')
+                            $btn.id = `btn-link-${link.key}-${uid}`
+                            $btn.classList.add('btn', 'btn-action')
+                            $btn.dataset.id = uid
+                            $btn.dataset.action = link.key
+                            $btn.textContent = link.label
+
+                            $wrapper.appendChild($btn)
+                        }
+
+                        $tmp.append($wrapper)
+
+                        return GridHTML($tmp.innerHTML)
+                    },
                 },
             ],
             search: true,
@@ -221,45 +211,37 @@ if ($_SERVER["REQUEST_METHOD"] == "GET") {
             }),
         })
 
-        grid.on('rowClick', (...args) => {
-            const id = args[1].cells[0].data
-            window.open(`https://www.wildberries.ru/catalog/${id}/detail.aspx`)
-        })
-
         grid.render($result)
+
+        subscribe(e => {
+            initTableActions(e)
+            initTableClipboard(e)
+        })
     }
 
-    function searchProducts(event) {
-        const form = event.target;
-        const url = `${form.action}?${new URLSearchParams(new FormData(form)).toString()}`
 
-        showLoader()
-
-        fetch(url)
-            .then(response => response.json())
-            .then(data => displayResults(data))
-            .catch(error => {
-                console.error('Error:', error)
-                hideLoader()
-            });
-    }
-
+    /**
+     * @param {Object} d
+     */
     function displayResults(d) {
-        const data = d.products.map((product, position) => [product.id, product.name, position + 1])
-
-        console.log({data, resolver})
+        const data = d.products.map((product, index) => [
+            index + 1,
+            product.id,
+            product.name,
+            {no: index + 1, id: product.id, name: product.name},
+        ])
 
         resolver(data)
 
         hideLoader()
     }
 
-    function showLoader() {
-        $loader.classList.remove('hidden')
+    function showResult() {
+        $result.classList.remove('hidden')
     }
 
-    function hideLoader() {
-        $loader.classList.add('hidden')
+    function hideResult() {
+        $result.classList.add('hidden')
     }
 </script>
 </body>

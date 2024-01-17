@@ -152,131 +152,14 @@ if ($_SERVER["REQUEST_METHOD"] == "GET") {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Результаты поиска продуктов</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            height: 100vh;
-        }
-
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f4f4f4;
-            margin: 20px;
-        }
-
-        .wrapper {
-            max-width: 800px;
-            min-width: 800px;
-            margin: 0 auto;
-            background-color: #fff;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-        }
-
-        label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
-        }
-
-        input {
-            width: calc(100% - 12px);
-            padding: 8px;
-            margin-bottom: 15px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            box-sizing: border-box;
-        }
-
-        #tags {
-            display: flex;
-            flex-wrap: wrap;
-            margin: 5px 0;
-        }
-
-        #tags .tag {
-            background-color: #3498db;
-            color: white;
-            padding: 5px 10px;
-            margin: 5px;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-
-        #tags .tag:hover {
-            background-color: #2980b9;
-        }
-
-        #tags .tag[data-tag=""] {
-            display: none;
-        }
-
-        input[type="submit"] {
-            background-color: #4caf50;
-            color: #fff;
-            cursor: pointer;
-        }
-
-        input[type="submit"]:hover {
-            background-color: #45a049;
-        }
-
-        #result-container {
-            border: 1px solid #ccc;
-            padding: 10px;
-            margin-top: 20px;
-        }
-
-        .product-result {
-            margin-bottom: 20px;
-        }
-
-        .error {
-            color: red;
-        }
-
-        #loader {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(255, 255, 255, 0.8); /* Translucent background for the loader */
-            padding: 20px;
-            border-radius: 10px;
-        }
-
-        #loader-icon {
-            border: 5px solid #f3f3f3;
-            border-top: 5px solid #3498db;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            0% {
-                transform: rotate(0deg);
-            }
-            100% {
-                transform: rotate(360deg);
-            }
-        }
-
-        .hidden {
-            display: none !important;
-        }
-    </style>
+    <link href="https://unpkg.com/gridjs/dist/theme/mermaid.min.css" rel="stylesheet"/>
+    <link href="/css/style.css" rel="stylesheet"/>
+    <link href="/css/tags.css" rel="stylesheet"/>
+    <script src="/js/tags.js" defer></script>
+    <script src="/js/links.js" defer></script>
+    <script src="/js/grid-table.js" defer></script>
+    <script src="/js/loader.js" defer></script>
+    <script src="/js/toaster.js" defer></script>
 </head>
 <body>
 <section class="wrapper">
@@ -293,117 +176,167 @@ if ($_SERVER["REQUEST_METHOD"] == "GET") {
         <input type="submit" value="Поиск">
     </form>
 
-    <div id="result-container" class="hidden"></div>
+    <div id="result-container" class="hidden">
+        <div id="result-title" class="rc-title rc-part">
+            <div class="iw-label iw-part">Код товара:</div>
+            <div id="rt-value" class="iw-value iw-part"></div>
+            <div id="rt-icon" class="iw-icon iw-part" data-action="copy">
+                <img src="/images/copy.svg" alt="Copy Icon">
+            </div>
+        </div>
+        <div id="result-content" class="rc-content rc-part"></div>
+    </div>
 </section>
-
-
+<div id="toast" class="action-notification">
+    <p class="action-notification-message"></p>
+</div>
 <div id="loader" class="hidden">
     <div id="loader-icon"></div>
 </div>
-
+<script src="https://unpkg.com/gridjs/dist/gridjs.umd.js"></script>
 <script>
-    const MAX_TAGS = 5;
-
     const $form = document.getElementById('search-form')
-    const $loader = document.getElementById('loader')
-    const $result = document.getElementById('result-container')
     const $keywords = document.getElementById('keywords')
-    const $tags = document.getElementById('tags')
+    const $container = document.getElementById('result-container')
+    const $value = document.getElementById('rt-value')
+    const $icon = document.getElementById('rt-icon')
+    const $result = document.getElementById('result-content')
 
-    $form.onsubmit = event => {
-        event.preventDefault()
+    window.onload = () => {
+        console.log('init')
 
-        searchProducts(event)
+        initFormListeners()
     }
 
-    $keywords.oninput = event => {
-        convertToTags()
+    function initFormListeners() {
+        $form.onsubmit = event => {
+            event.preventDefault()
+
+            searchProducts(event)
+        }
+
+        $icon.onclick = event => {
+            event.preventDefault()
+
+            const id = $icon.dataset.value
+            console.log(`copy: ${id}`)
+            copyToClipboard(id)
+        }
+
+        $keywords.oninput = event => {
+            convertToTags()
+        }
     }
 
     function searchProducts(event) {
-        const form = event.target;
+        const form = event.target
         const url = `${form.action}?${new URLSearchParams(new FormData(form)).toString()}`
 
-        showLoader()
-        hideResult()
+        prepareGrid()
 
         fetch(url)
             .then(response => response.json())
-            .then(data => displayResults(data))
+            .then(data => {
+                if (data.error) throw new Error(data.error)
+
+                displayResults(data)
+            })
             .catch(error => {
                 console.error('Error:', error)
-                hideResult()
+                hideContainer()
                 hideLoader()
-            });
+            })
+    }
+
+    function prepareGrid() {
+        removeTable($result)
+
+        initTable()
+
+        showLoader()
+        showContainer()
+    }
+
+    function initTable() {
+        grid = new Grid({
+            columns: [
+                {
+                    name: 'No',
+                    columnId: 'no',
+                    width: '80px',
+                },
+                {
+                    name: 'фраза',
+                    columnId: 'keyword',
+                },
+                {
+                    name: 'Страница',
+                    columnId: 'page',
+                    width: '120px',
+                },
+                {
+                    name: 'Позиция',
+                    columnId: 'position',
+                    width: '120px',
+                },
+            ],
+            sort: true,
+            data: () => new Promise(resolve => {
+                resolver = resolve
+            }),
+        })
+
+        grid.render($result)
     }
 
     /**
-     * @param {Object} results
-     * @param {string} results.keyword
-     * @param {?Object[]} results.positions
-     * @param {string} results.positions[].keyword
-     * @param {string} results.positions[].page
-     * @param {string} results.positions[].position
-     * @param {?string} results.error
+     * @param {Object} d
+     * @param {string} d.keyword
+     * @param {?Object[]} d.positions
+     * @param {string} d.positions[].keyword
+     * @param {string} d.positions[].page
+     * @param {string} d.positions[].position
+     * @param {?string} d.error
      */
-    function displayResults(results) {
-        $result.innerHTML = ''
+    function displayResults(d) {
+        hideLoader()
 
-        if (results.error) {
-            $result.innerHTML = `<div class="error">${results.error}</div>`
-            return;
+        if (d.error) {
+            renderError(d.error)
+            return
         }
 
-        if (results.positions == null || results.positions.length === 0) {
-            $result.innerHTML = `<div class="error">Продукты не найдены</div>`
-            return;
+        if (d.positions == null || d.positions.length === 0) {
+            renderError('Продукты не найдены')
+            return
         }
 
-        $result.innerHTML = `<div>
-                <h2>Код товара: ${results['product_id']}</h2>
-                <ul>
-                    ${results.positions.map(item => `<li class="product-result">
-                        <strong>ключевое слово:</strong> ${item.keyword}<br>
-                        <strong>Страница:</strong> ${item.page == null ? 'Страница не найден' : item.page}<br>
-                        <strong>Позиция:</strong> ${item.position == null ? 'Продукт не найден' : item.position}
-                    </li>`).join('')}
-                </ul>
-            </div>`
+        const data = d.positions.map((p, index) => [
+            index + 1,
+            p.keyword,
+            p.page == null ? 'Страница не найден' : p.page,
+            p.position == null ? 'Продукт не найден' : p.position,
+        ])
 
-        showResult()
+        resolver(data)
+
+        $value.textContent = `${d['product_id']}`
+        $icon.dataset.value = `${d['product_id']}`
+
+        showContainer()
         hideLoader()
     }
 
-    function convertToTags() {
-        const keywords = $keywords.value.split(',').map(tag => tag.trim());
-
-        // Clear existing tags
-        $tags.innerHTML = '';
-
-        // Add new tags
-        for (let i = 0; i < Math.min(keywords.length, MAX_TAGS); i++) {
-            const $tag = document.createElement('div');
-            $tag.className = 'tag';
-            $tag.textContent = keywords[i];
-            $tag.dataset.tag = keywords[i];
-            $tags.append($tag);
-        }
+    function showContainer() {
+        $container.classList.remove('hidden')
     }
 
-    function showLoader() {
-        $loader.classList.remove('hidden')
+    function hideContainer() {
+        $container.classList.add('hidden')
     }
 
-    function hideLoader() {
-        $loader.classList.add('hidden')
-    }
-
-    function showResult() {
-        $result.classList.remove('hidden')
-    }
-
-    function hideResult() {
-        $result.classList.add('hidden')
+    function renderError(error) {
+        $result.innerHTML = `<div class="error">${error}</div>`
     }
 </script>
 </body>
