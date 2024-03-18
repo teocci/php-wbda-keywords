@@ -1,8 +1,9 @@
 <?php
+require 'url_helper.php';
 
 class FirstPageByKeywordService
 {
-    private const WILDBERRIES_API_URL = 'https://search.wb.ru/exactmatch/ru/common/v4/search';
+    private const WB_API_URL = 'https://search.wb.ru/exactmatch/ru/common/v5/search';
 
     private function hasResults($response): bool
     {
@@ -30,8 +31,19 @@ class FirstPageByKeywordService
 
     private function buildSearchUrl($keyword): string
     {
-        return self::WILDBERRIES_API_URL . '?TestGroup=no_test&TestID=no_test&appType=1&curr=rub&dest=-1257786&spp=29&suppressSpellcheck=false&resultset=catalog&' .
-            "sort=popular&query={$keyword}";
+        $params = [
+            'ab_testing' => 'false',
+            'appType' => '1',
+            'curr' => 'rub',
+            'dest' => '-1257786',
+            'query' => $keyword,
+            'resultset' => 'catalog',
+            'sort' => 'popular',
+            'spp' => '30',
+            'suppressSpellcheck' => 'false'
+        ];
+
+        return UrlHelper::buildUrlWithParams(self::WB_API_URL, $params);
     }
 }
 

@@ -1,4 +1,5 @@
 <?php
+require 'url_helper.php';
 
 class FirstPageADSByKeywordService
 {
@@ -31,7 +32,11 @@ class FirstPageADSByKeywordService
 
     private function buildSearchUrl($keyword): string
     {
-        return self::WB_API_URL . "?keyword={$keyword}";
+        $params = [
+            'keyword' => $keyword,
+        ];
+
+        return UrlHelper::buildUrlWithParams(self::WB_API_URL, $params);
     }
 }
 

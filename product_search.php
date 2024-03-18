@@ -1,10 +1,12 @@
 <?php
+require 'url_helper.php';
+require 'curl_helper.php';
 
 class ProductSearchService
 {
     private const PAGE_LIMIT = 50;
-    private const CONCURRENT_REQUESTS = 5;
-    private const WILDBERRIES_API_URL = 'https://search.wb.ru/exactmatch/ru/common/v4/search';
+    private const CONCURRENT_REQUESTS = 3;
+    private const WB_API_URL = 'https://search.wb.ru/exactmatch/ru/common/v5/search';
 
     public function searchProducts($keyword, $productIds): array
     {
@@ -25,7 +27,7 @@ class ProductSearchService
 
     public function searchProduct($keyword, $productId): array
     {
-        $responses = $this->sendRequests($keyword);
+        $responses = $this->sendRequests($keyword, $productId);
 
         foreach ($responses as $page => $response) {
             if (!$this->hasResults($response)) continue;
@@ -51,7 +53,20 @@ class ProductSearchService
         return isset($response['data']['products']) && count($response['data']['products']) > 0;
     }
 
-    private function sendRequests($keyword): array
+    private function isProductFound($responses, $productId): bool
+    {
+        foreach ($responses as $response) {
+            if (!$this->hasResults($response)) return false;
+
+            foreach ($response['data']['products'] as $product) {
+                if ($product['id'] == $productId) return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function sendRequests($keyword, $productId): array
     {
         $responses = [];
         $handles = [];
@@ -61,63 +76,42 @@ class ProductSearchService
         for ($page = 1; $page <= self::PAGE_LIMIT; $page++) {
             $url = $this->buildSearchUrl($keyword, $page);
 
-            $ch = curl_init($url);
-
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_HEADER, 0);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-
-            $handles[$page] = ['ch' => $ch, 'page' => $page];
- 
-            curl_multi_add_handle($mh, $ch);
+            CURLHelper::addCurlHandle($mh, $handles, $url, $page);
 
             if (count($handles) >= self::CONCURRENT_REQUESTS) {
-                $this->executeMultiHandle($mh, $handles, $responses);
+                CURLHelper::executeMultiHandle($mh, $handles, $responses);
+                if ($this->isProductFound($responses, $productId)) {
+                    break;
+                }
             }
         }
 
         // Execute any remaining handles
-        $this->executeMultiHandle($mh, $handles, $responses);
+        if (!$this->isProductFound($responses, $productId)) {
+            CURLHelper::executeMultiHandle($mh, $handles, $responses);
+        }
 
         curl_multi_close($mh);
 
         return $responses;
     }
 
-    private function executeMultiHandle($mh, &$handles, &$responses): void
-    {
-        $active = 0;
-        do {
-            $mrc = curl_multi_exec($mh, $active);
-        } while ($mrc == CURLM_CALL_MULTI_PERFORM);
-
-        while ($active && $mrc == CURLM_OK) {
-            if (curl_multi_select($mh) == -1) {
-                usleep(1);
-            }
-
-            do {
-                $mrc = curl_multi_exec($mh, $active);
-            } while ($mrc == CURLM_CALL_MULTI_PERFORM);
-        }
-
-        foreach ($handles as $data) {
-            $ch = $data['ch'];
-            $page = $data['page'];
-
-            $chResponse = curl_multi_getcontent($ch);
-            $responses[$page] = json_decode($chResponse, true);
-
-            curl_multi_remove_handle($mh, $ch);
-        }
-
-        $handles = []; // Reset the active handles array
-    }
-
     private function buildSearchUrl($keyword, $page): string
     {
-        return self::WILDBERRIES_API_URL . '?TestGroup=no_test&TestID=no_test&appType=1&curr=rub&dest=-1257786&spp=29&suppressSpellcheck=false&resultset=catalog&' .
-            "page={$page}&sort=popular&query={$keyword}";
+        $params = [
+            'ab_testing' => 'false',
+            'appType' => '1',
+            'curr' => 'rub',
+            'dest' => '-1257786',
+            'query' => $keyword,
+            'page' => $page,
+            'resultset' => 'catalog',
+            'sort' => 'popular',
+            'spp' => '30',
+            'suppressSpellcheck' => 'false'
+        ];
+
+        return UrlHelper::buildUrlWithParams(self::WB_API_URL, $params);
     }
 
     private function findProductPosition($response, $productId): int|null
@@ -267,8 +261,12 @@ if ($_SERVER["REQUEST_METHOD"] == "GET") {
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         .hidden {
@@ -277,97 +275,97 @@ if ($_SERVER["REQUEST_METHOD"] == "GET") {
     </style>
 </head>
 <body>
-    <section class="wrapper">
-        <h1>Найти позицию продукта</h1>
+<section class="wrapper">
+    <h1>Найти позицию продукта</h1>
 
-        <form method="GET" id="search-form">
-            <label for="keyword">Ключевое слово:</label>
-            <input type="text" id="keyword" name="keyword" required>
-            <br>
-            <label for="product-ids">Идентификаторы продуктов (через запятую, максимум 5):</label>
-            <div id="tags"></div>
-            <input type="text" id="product-ids" name="product_ids" required>
-            <br>
-            <input type="submit" value="Поиск">
-        </form>
+    <form method="GET" id="search-form">
+        <label for="keyword">Ключевое слово:</label>
+        <input type="text" id="keyword" name="keyword" required>
+        <br>
+        <label for="product-ids">Идентификаторы продуктов (через запятую, максимум 5):</label>
+        <div id="tags"></div>
+        <input type="text" id="product-ids" name="product_ids" required>
+        <br>
+        <input type="submit" value="Поиск">
+    </form>
 
-        <div id="result-container" class="hidden"></div>
-    </section>
+    <div id="result-container" class="hidden"></div>
+</section>
 
 
-    <div id="loader" class="hidden">
-        <div id="loader-icon"></div>
-    </div>
+<div id="loader" class="hidden">
+    <div id="loader-icon"></div>
+</div>
 
-    <script>
-        const MAX_TAGS = 5;
+<script>
+    const MAX_TAGS = 5
 
-        const $form = document.getElementById('search-form')
-        const $loader = document.getElementById('loader')
-        const $result = document.getElementById('result-container')
-        const $tags = document.getElementById('tags')
-        const $products = document.getElementById('product-ids')
+    const $form = document.getElementById('search-form')
+    const $loader = document.getElementById('loader')
+    const $result = document.getElementById('result-container')
+    const $tags = document.getElementById('tags')
+    const $products = document.getElementById('product-ids')
 
-        $products.oninput = event => {
-            convertToTags()
+    $products.oninput = event => {
+        convertToTags()
+    }
+
+    $form.onsubmit = event => {
+        event.preventDefault()
+        searchProducts(event)
+    }
+
+    function searchProducts(event) {
+        const form = event.target
+        const url = `${form.action}?${new URLSearchParams(new FormData(form)).toString()}`
+
+        showLoader()
+        hideResult()
+
+        fetch(url)
+            .then(response => response.json())
+            .then(data => displayResults(data))
+            .catch(error => {
+                console.error('Error:', error)
+                hideResult()
+                hideLoader()
+            })
+    }
+
+    function convertToTags() {
+        const products = $products.value.split(',').map(tag => tag.trim())
+
+        // Clear existing tags
+        $tags.innerHTML = ''
+
+        // Add new tags
+        for (let i = 0; i < Math.min(products.length, MAX_TAGS); i++) {
+            const $tag = document.createElement('div')
+            $tag.className = 'tag'
+            $tag.textContent = products[i]
+            $tag.dataset.tag = products[i]
+            $tags.append($tag)
+        }
+    }
+
+    /**
+     * @param {Object} results
+     * @param {string} results.keyword
+     * @param {Object[]} results.products
+     * @param {number} results.products[].id
+     * @param {number} results.products[].page
+     * @param {number} results.products[].position
+     * @param {string} results.error
+     */
+    function displayResults(results) {
+        $result.innerHTML = ''
+
+        if (results.error) {
+            $result.innerHTML = `<div class="error">${results.error}</div>`
+            return
         }
 
-        $form.onsubmit = event => {
-            event.preventDefault()
-            searchProducts(event)
-        }
-
-        function searchProducts(event) {
-            const form = event.target;
-            const url = `${form.action}?${new URLSearchParams(new FormData(form)).toString()}`
-
-            showLoader()
-            hideResult()
-
-            fetch(url)
-                .then(response => response.json())
-                .then(data => displayResults(data))
-                .catch(error => {
-                    console.error('Error:', error)
-                    hideResult()
-                    hideLoader()
-                });
-        }
-
-        function convertToTags() {
-            const products = $products.value.split(',').map(tag => tag.trim());
-
-            // Clear existing tags
-            $tags.innerHTML = '';
-
-            // Add new tags
-            for (let i = 0; i < Math.min(products.length, MAX_TAGS); i++) {
-                const $tag = document.createElement('div');
-                $tag.className = 'tag';
-                $tag.textContent = products[i];
-                $tag.dataset.tag = products[i];
-                $tags.append($tag);
-            }
-        }
-
-        /**
-         * @param {Object} results
-         * @param {string} results.keyword
-         * @param {Object[]} results.products
-         * @param {number} results.products[].id
-         * @param {number} results.products[].page
-         * @param {number} results.products[].position
-         * @param {string} results.error
-         */
-        function displayResults(results) {
-            $result.innerHTML = ''
-
-            if (results.error) {
-                $result.innerHTML = `<div class="error">${results.error}</div>`
-                return;
-            }
-
-            $result.innerHTML = `<div>
+        $result.innerHTML = `<div>
                 <h2>Результаты для ключевого слова: ${results.keyword}</h2>
                 <ul>
                     ${results.products.map(product => `<li class="product-result">
@@ -377,26 +375,26 @@ if ($_SERVER["REQUEST_METHOD"] == "GET") {
                     </li>`).join('')}
                 </ul>
             </div>`
-            showResult()
-            hideLoader()
-        }
+        showResult()
+        hideLoader()
+    }
 
-        function showLoader() {
-            $loader.classList.remove('hidden')
-        }
+    function showLoader() {
+        $loader.classList.remove('hidden')
+    }
 
-        function hideLoader() {
-            $loader.classList.add('hidden')
-        }
+    function hideLoader() {
+        $loader.classList.add('hidden')
+    }
 
-        function showResult() {
-            $result.classList.remove('hidden')
-        }
+    function showResult() {
+        $result.classList.remove('hidden')
+    }
 
-        function hideResult() {
-            $result.classList.add('hidden')
-        }
-    </script>
+    function hideResult() {
+        $result.classList.add('hidden')
+    }
+</script>
 </body>
 </html>
 

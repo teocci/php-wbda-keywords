@@ -1,10 +1,12 @@
 <?php
+require 'url_helper.php';
+require 'curl_helper.php';
 
 class ProductSearchByKeywordsService
 {
     private const PAGE_LIMIT = 50;
-    private const CONCURRENT_REQUESTS = 5;
-    private const WILDBERRIES_API_URL = 'https://search.wb.ru/exactmatch/ru/common/v4/search';
+    private const CONCURRENT_REQUESTS = 4;
+    private const WB_API_URL = 'https://search.wb.ru/exactmatch/ru/common/v5/search';
 
     public function searchProducts($keywords, $productId): array
     {
@@ -25,7 +27,7 @@ class ProductSearchByKeywordsService
 
     public function searchProduct($keyword, $productId): array
     {
-        $responses = $this->sendRequests($keyword);
+        $responses = $this->sendRequests($keyword, $productId);
 
         foreach ($responses as $page => $response) {
             if (!$this->hasResults($response)) continue;
@@ -51,7 +53,20 @@ class ProductSearchByKeywordsService
         return isset($response['data']['products']) && count($response['data']['products']) > 0;
     }
 
-    private function sendRequests($keyword): array
+    private function isProductFound($responses, $productId): bool
+    {
+        foreach ($responses as $response) {
+            if (!$this->hasResults($response)) return false;
+
+            foreach ($response['data']['products'] as $product) {
+                if ($product['id'] == $productId) return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function sendRequests($keyword, $productId): array
     {
         $responses = [];
         $handles = [];
@@ -61,61 +76,43 @@ class ProductSearchByKeywordsService
         for ($page = 1; $page <= self::PAGE_LIMIT; $page++) {
             $url = $this->buildSearchUrl($keyword, $page);
 
-            $ch = curl_init($url);
-
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_HEADER, 0);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-
-            $handles[$page] = ['ch' => $ch, 'page' => $page];
-
-            curl_multi_add_handle($mh, $ch);
+            CURLHelper::addCurlHandle($mh, $handles, $url, $page);
 
             if (count($handles) >= self::CONCURRENT_REQUESTS) {
-                $this->executeMultiHandle($mh, $handles, $responses);
+                CURLHelper::executeMultiHandle($mh, $handles, $responses);
+                if ($this->isProductFound($responses, $productId)) {
+                    break;
+                }
             }
+            usleep(100);
         }
 
         // Execute any remaining handles
-        $this->executeMultiHandle($mh, $handles, $responses);
+        if (!$this->isProductFound($responses, $productId)) {
+            CURLHelper::executeMultiHandle($mh, $handles, $responses);
+        }
 
         curl_multi_close($mh);
 
         return $responses;
     }
 
-    private function executeMultiHandle($mh, &$handles, &$responses): void
-    {
-        $active = 0;
-        do {
-            $mrc = curl_multi_exec($mh, $active);
-        } while ($mrc == CURLM_CALL_MULTI_PERFORM);
-
-        while ($active && $mrc == CURLM_OK) {
-            if (curl_multi_select($mh) == -1) usleep(1);
-
-            do {
-                $mrc = curl_multi_exec($mh, $active);
-            } while ($mrc == CURLM_CALL_MULTI_PERFORM);
-        }
-
-        foreach ($handles as $data) {
-            $ch = $data['ch'];
-            $page = $data['page'];
-
-            $chResponse = curl_multi_getcontent($ch);
-            $responses[$page] = json_decode($chResponse, true);
-
-            curl_multi_remove_handle($mh, $ch);
-        }
-
-        $handles = []; // Reset the active handles array
-    }
-
     private function buildSearchUrl($keyword, $page): string
     {
-        return self::WILDBERRIES_API_URL . '?TestGroup=no_test&TestID=no_test&appType=1&curr=rub&dest=-1257786&spp=29&suppressSpellcheck=false&resultset=catalog&' .
-            "page={$page}&sort=popular&query={$keyword}";
+        $params = [
+            'ab_testing' => 'false',
+            'appType' => '1',
+            'curr' => 'rub',
+            'dest' => '-1257786',
+            'query' => $keyword,
+            'page' => $page,
+            'resultset' => 'catalog',
+            'sort' => 'popular',
+            'spp' => '30',
+            'suppressSpellcheck' => 'false'
+        ];
+
+        return UrlHelper::buildUrlWithParams(self::WB_API_URL, $params);
     }
 
     private function findProductPosition($response, $productId): int|null
@@ -228,9 +225,39 @@ if ($_SERVER["REQUEST_METHOD"] == "GET") {
         }
     }
 
+    function processKeywords() {
+        const inputElement = document.getElementById('keywords')
+        const inputValue = inputElement.value
+
+        const raw = inputValue.split(',')
+
+        return raw.map(keyword => keyword.trim().replace(/\s+/g, ' '))
+    }
+
+    function processProductId() {
+        const productIdElement = document.getElementById('product-id')
+        const productId = productIdElement.value.trim()
+
+        // Validate the product ID if necessary (e.g., ensure it's not empty)
+        if (!productId) {
+            console.error('Product ID is required')
+            return
+        }
+
+        return productId
+    }
+
+
     function searchProducts(event) {
         const form = event.target
-        const url = `${form.action}?${new URLSearchParams(new FormData(form)).toString()}`
+        const actionURL = `${form.action}`
+        const url = new URL(actionURL)
+
+        const keywords = processKeywords()
+        const productId = processProductId()
+
+        url.searchParams.set('keywords', keywords)
+        url.searchParams.set('product_id', productId)
 
         prepareGrid()
 
