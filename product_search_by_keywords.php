@@ -5,7 +5,7 @@ require 'curl_helper.php';
 class ProductSearchByKeywordsService
 {
     private const PAGE_LIMIT = 50;
-    private const CONCURRENT_REQUESTS = 4;
+    private const CONCURRENT_REQUESTS = 3;
     private const WB_API_URL = 'https://search.wb.ru/exactmatch/ru/common/v5/search';
 
     public function searchProducts($keywords, $productId): array
@@ -84,7 +84,6 @@ class ProductSearchByKeywordsService
                     break;
                 }
             }
-            usleep(100);
         }
 
         // Execute any remaining handles
