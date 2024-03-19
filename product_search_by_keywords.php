@@ -17,6 +17,8 @@ class ProductSearchByKeywordsService
         foreach ($keywords as $keyword) {
             $result = $this->searchProduct($keyword, $productId);
             $results[] = $result;
+
+            usleep(50000);
         }
 
         return [
